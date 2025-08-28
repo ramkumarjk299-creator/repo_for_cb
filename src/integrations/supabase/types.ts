@@ -14,7 +14,119 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      daily_summary: {
+        Row: {
+          created_at: string | null
+          date: string
+          id: string
+          total_docs: number | null
+          total_income_cents: number | null
+          total_users: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          date: string
+          id?: string
+          total_docs?: number | null
+          total_income_cents?: number | null
+          total_users?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          date?: string
+          id?: string
+          total_docs?: number | null
+          total_income_cents?: number | null
+          total_users?: number | null
+        }
+        Relationships: []
+      }
+      job_groups: {
+        Row: {
+          created_at: string | null
+          id: string
+          payment_status: string | null
+          total_price_cents: number | null
+          updated_at: string | null
+          user_label: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          payment_status?: string | null
+          total_price_cents?: number | null
+          updated_at?: string | null
+          user_label?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          payment_status?: string | null
+          total_price_cents?: number | null
+          updated_at?: string | null
+          user_label?: string | null
+        }
+        Relationships: []
+      }
+      jobs: {
+        Row: {
+          color_mode: string | null
+          copies: number | null
+          created_at: string | null
+          file_name: string
+          file_size_bytes: number | null
+          id: string
+          job_group_id: string | null
+          pages: string | null
+          payment_status: string | null
+          price_cents: number | null
+          sides: string | null
+          status: string | null
+          storage_path: string
+          updated_at: string | null
+        }
+        Insert: {
+          color_mode?: string | null
+          copies?: number | null
+          created_at?: string | null
+          file_name: string
+          file_size_bytes?: number | null
+          id?: string
+          job_group_id?: string | null
+          pages?: string | null
+          payment_status?: string | null
+          price_cents?: number | null
+          sides?: string | null
+          status?: string | null
+          storage_path: string
+          updated_at?: string | null
+        }
+        Update: {
+          color_mode?: string | null
+          copies?: number | null
+          created_at?: string | null
+          file_name?: string
+          file_size_bytes?: number | null
+          id?: string
+          job_group_id?: string | null
+          pages?: string | null
+          payment_status?: string | null
+          price_cents?: number | null
+          sides?: string | null
+          status?: string | null
+          storage_path?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "jobs_job_group_id_fkey"
+            columns: ["job_group_id"]
+            isOneToOne: false
+            referencedRelation: "job_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

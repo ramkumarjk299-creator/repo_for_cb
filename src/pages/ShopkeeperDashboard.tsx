@@ -1,167 +1,222 @@
-import { useState } from "react";
-import { Calendar, Download, Settings, Trash2, CheckCircle, Clock, FileText, DollarSign, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Printer, FileText, Download, CheckCircle, Clock, DollarSign, Users, Calendar, Trash2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
-interface JobFile {
+interface Job {
   id: string;
-  fileName: string;
-  fileSizeBytes: number;
-  recipe: {
-    pages: string;
-    colorMode: "bw" | "color";
-    sides: "single" | "double";
-    copies: number;
-  };
-  priceCents: number;
+  job_group_id: string;
+  file_name: string;
+  file_size_bytes: number;
+  storage_path: string;
+  pages: string;
+  color_mode: "bw" | "color";
+  sides: "single" | "double";
+  copies: number;
+  price_cents: number;
+  payment_status: string;
   status: "queued" | "processing" | "printed" | "ready";
+  created_at: string;
 }
 
 interface JobGroup {
   id: string;
-  userLabel?: string;
-  totalPriceCents: number;
-  paymentStatus: "paid";
-  createdAt: string;
-  files: JobFile[];
+  user_label: string | null;
+  total_price_cents: number;
+  payment_status: string;
+  created_at: string;
+  jobs: Job[];
 }
 
-// Demo data
-const demoJobs: JobGroup[] = [
-  {
-    id: "QP-789123",
-    userLabel: "John Doe",
-    totalPriceCents: 2500,
-    paymentStatus: "paid",
-    createdAt: "2024-01-15T10:30:00Z",
-    files: [
-      {
-        id: "file1",
-        fileName: "business_proposal.pdf",
-        fileSizeBytes: 2048000,
-        recipe: { pages: "all", colorMode: "bw", sides: "double", copies: 2 },
-        priceCents: 1500,
-        status: "queued"
-      },
-      {
-        id: "file2", 
-        fileName: "charts.png",
-        fileSizeBytes: 512000,
-        recipe: { pages: "all", colorMode: "color", sides: "single", copies: 1 },
-        priceCents: 1000,
-        status: "queued"
-      }
-    ]
-  },
-  {
-    id: "QP-456789",
-    userLabel: "Sarah Wilson",
-    totalPriceCents: 800,
-    paymentStatus: "paid",
-    createdAt: "2024-01-15T11:15:00Z",
-    files: [
-      {
-        id: "file3",
-        fileName: "resume.docx",
-        fileSizeBytes: 128000,
-        recipe: { pages: "all", colorMode: "bw", sides: "single", copies: 5 },
-        priceCents: 800,
-        status: "processing"
-      }
-    ]
-  }
-];
-
 export default function ShopkeeperDashboard() {
-  const [jobs, setJobs] = useState<JobGroup[]>(demoJobs);
-  const [selectedTab, setSelectedTab] = useState("today");
+  const [selectedTab, setSelectedTab] = useState("all");
+  const [jobGroups, setJobGroups] = useState<JobGroup[]>([]);
+  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const formatPrice = (cents: number) => {
-    return `₹${(cents / 100).toFixed(2)}`;
-  };
+  useEffect(() => {
+    loadJobGroups();
+  }, []);
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
+  const loadJobGroups = async () => {
+    try {
+      const { data: groups, error: groupsError } = await supabase
+        .from('job_groups')
+        .select('*')
+        .eq('payment_status', 'paid')
+        .order('created_at', { ascending: false });
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "queued": return "bg-status-queued";
-      case "processing": return "bg-status-processing";
-      case "printed": return "bg-status-printed";
-      case "ready": return "bg-status-ready";
-      default: return "bg-muted";
+      if (groupsError) throw groupsError;
+
+      const { data: jobs, error: jobsError } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('payment_status', 'paid')
+        .order('created_at', { ascending: false });
+
+      if (jobsError) throw jobsError;
+
+      const groupsWithJobs = groups.map(group => ({
+        ...group,
+        jobs: jobs.filter(job => job.job_group_id === group.id).map(job => ({
+          ...job,
+          color_mode: job.color_mode as "bw" | "color",
+          sides: job.sides as "single" | "double",
+          status: job.status as "queued" | "processing" | "printed" | "ready"
+        }))
+      }));
+
+      setJobGroups(groupsWithJobs);
+    } catch (error) {
+      console.error('Error loading job groups:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load jobs. Please refresh the page.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "queued": return <Clock className="w-4 h-4" />;
-      case "processing": return <Settings className="w-4 h-4 animate-spin" />;
-      case "printed": return <CheckCircle className="w-4 h-4" />;
-      case "ready": return <CheckCircle className="w-4 h-4" />;
-      default: return <FileText className="w-4 h-4" />;
+  const updateJobStatus = async (jobId: string, newStatus: Job["status"]) => {
+    try {
+      const { error } = await supabase
+        .from('jobs')
+        .update({ status: newStatus })
+        .eq('id', jobId);
+
+      if (error) throw error;
+
+      setJobGroups(prev => 
+        prev.map(group => ({
+          ...group,
+          jobs: group.jobs.map(job => 
+            job.id === jobId ? { ...job, status: newStatus } : job
+          )
+        }))
+      );
+
+      toast({
+        title: "Status updated",
+        description: `Job marked as ${newStatus}`,
+      });
+    } catch (error) {
+      console.error('Error updating job status:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update job status",
+        variant: "destructive",
+      });
     }
   };
 
-  const handleDownloadFile = (jobId: string, fileId: string, fileName: string) => {
-    // In real app, this would call the API to get signed download URL
-    toast({
-      title: "Download Started",
-      description: `Downloading ${fileName}...`,
-    });
+  const downloadFile = async (job: Job) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(job.storage_path, 3600); // 1 hour expiry
+
+      if (error) throw error;
+
+      window.open(data.signedUrl, '_blank');
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      toast({
+        title: "Error", 
+        description: "Failed to download file",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleUpdateFileStatus = (jobId: string, fileId: string, newStatus: string) => {
-    setJobs(prev => prev.map(job => 
-      job.id === jobId 
-        ? {
-            ...job,
-            files: job.files.map(file => 
-              file.id === fileId 
-                ? { ...file, status: newStatus as any }
-                : file
-            )
-          }
-        : job
-    ));
+  const runEOD = async () => {
+    if (!confirm("This will archive today's jobs and delete all data. Continue?")) return;
 
-    toast({
-      title: "Status Updated",
-      description: `File marked as ${newStatus}`,
-    });
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Calculate daily summary
+      const todayJobs = jobGroups.filter(group => 
+        group.created_at.startsWith(today)
+      );
+      
+      const totalDocs = todayJobs.reduce((sum, group) => sum + group.jobs.length, 0);
+      const totalIncome = todayJobs.reduce((sum, group) => sum + group.total_price_cents, 0);
+
+      // Insert daily summary
+      await supabase.from('daily_summary').insert({
+        date: today,
+        total_users: todayJobs.length,
+        total_docs: totalDocs,
+        total_income_cents: totalIncome
+      });
+
+      // Delete storage files and database records
+      for (const group of todayJobs) {
+        for (const job of group.jobs) {
+          await supabase.storage.from('documents').remove([job.storage_path]);
+        }
+      }
+
+      await supabase.from('job_groups').delete().in('id', todayJobs.map(g => g.id));
+
+      toast({
+        title: "EOD Complete",
+        description: `Archived ${totalDocs} documents, ₹${(totalIncome / 100).toFixed(2)} revenue`,
+      });
+
+      loadJobGroups();
+    } catch (error) {
+      console.error('EOD error:', error);
+      toast({
+        title: "Error",
+        description: "EOD process failed",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleEODCleanup = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const totalJobs = jobs.length;
-    const totalFiles = jobs.reduce((sum, job) => sum + job.files.length, 0);
-    const totalIncome = jobs.reduce((sum, job) => sum + job.totalPriceCents, 0);
-
-    // In real app, this would call the API
-    setJobs([]);
-    
-    toast({
-      title: "End of Day Complete",
-      description: `Archived ${totalJobs} jobs (${totalFiles} files) worth ${formatPrice(totalIncome)}`,
-    });
+  const getFilteredJobGroups = () => {
+    switch (selectedTab) {
+      case "paid":
+        return jobGroups.filter(group => group.payment_status === "paid");
+      case "processing": 
+        return jobGroups.filter(group => group.jobs.some(job => job.status === "processing"));
+      case "printed":
+        return jobGroups.filter(group => group.jobs.every(job => job.status === "printed"));
+      default:
+        return jobGroups;
+    }
   };
 
-  const todayStats = {
-    totalJobs: jobs.length,
-    totalFiles: jobs.reduce((sum, job) => sum + job.files.length, 0),
-    totalIncome: jobs.reduce((sum, job) => sum + job.totalPriceCents, 0),
-    totalCustomers: new Set(jobs.map(job => job.userLabel)).size
+  const stats = {
+    totalJobs: jobGroups.reduce((sum, group) => sum + group.jobs.length, 0),
+    totalRevenue: jobGroups.reduce((sum, group) => sum + group.total_price_cents, 0),
+    pendingJobs: jobGroups.reduce((sum, group) => 
+      sum + group.jobs.filter(job => job.status === "queued").length, 0
+    ),
+    todayJobs: jobGroups.filter(group => 
+      new Date(group.created_at).toDateString() === new Date().toDateString()
+    ).length
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background to-muted p-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center py-12">
+            <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p>Loading dashboard...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted p-4">
@@ -176,233 +231,175 @@ export default function ShopkeeperDashboard() {
           </p>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-primary/10 rounded-lg">
-                  <FileText className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Today's Jobs</p>
-                  <p className="text-2xl font-bold">{todayStats.totalJobs}</p>
-                </div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Jobs</CardTitle>
+              <FileText className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.totalJobs}</div>
             </CardContent>
           </Card>
-
+          
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-accent/10 rounded-lg">
-                  <Clock className="w-5 h-5 text-accent" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Files to Print</p>
-                  <p className="text-2xl font-bold">{todayStats.totalFiles}</p>
-                </div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">₹{(stats.totalRevenue / 100).toFixed(2)}</div>
             </CardContent>
           </Card>
-
+          
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-status-printed/10 rounded-lg">
-                  <DollarSign className="w-5 h-5 text-status-printed" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Today's Revenue</p>
-                  <p className="text-2xl font-bold">{formatPrice(todayStats.totalIncome)}</p>
-                </div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending Jobs</CardTitle>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.pendingJobs}</div>
             </CardContent>
           </Card>
-
+          
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-status-processing/10 rounded-lg">
-                  <Users className="w-5 h-5 text-status-processing" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Customers</p>
-                  <p className="text-2xl font-bold">{todayStats.totalCustomers}</p>
-                </div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Today's Orders</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.todayJobs}</div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Main Content */}
+        {/* EOD Controls */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              End of Day Operations
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Archive today's completed jobs and clean up storage
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  This will permanently delete all job records and files from today
+                </p>
+              </div>
+              <Button onClick={runEOD} variant="destructive" className="gap-2">
+                <Trash2 className="w-4 h-4" />
+                Run EOD Cleanup
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Jobs */}
         <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-          <div className="flex justify-between items-center">
-            <TabsList>
-              <TabsTrigger value="today">Today's Jobs</TabsTrigger>
-              <TabsTrigger value="eod">End of Day</TabsTrigger>
-            </TabsList>
+          <TabsList>
+            <TabsTrigger value="all">All Jobs</TabsTrigger>
+            <TabsTrigger value="paid">Paid</TabsTrigger>
+            <TabsTrigger value="processing">Processing</TabsTrigger>
+            <TabsTrigger value="printed">Printed</TabsTrigger>
+          </TabsList>
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  EOD Cleanup
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>End of Day Cleanup</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will archive today's statistics and permanently delete all job records and files. 
-                    This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleEODCleanup}>
-                    Confirm Cleanup
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-
-          <TabsContent value="today" className="space-y-4">
-            {jobs.length === 0 ? (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="font-semibold mb-2">No jobs today</h3>
-                  <p className="text-muted-foreground">Jobs will appear here when customers place orders</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-4">
-                {jobs.map((job) => (
-                  <Card key={job.id} className="overflow-hidden">
+          <TabsContent value={selectedTab} className="space-y-4">
+            <div className="space-y-4">
+              {getFilteredJobGroups().length === 0 ? (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <Printer className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="font-semibold mb-2">No jobs found</h3>
+                    <p className="text-muted-foreground">
+                      Jobs will appear here when customers place orders
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                getFilteredJobGroups().map((group) => (
+                  <Card key={group.id} className="mb-4">
                     <CardHeader>
                       <div className="flex items-center justify-between">
-                        <div>
-                          <CardTitle className="text-lg">Job {job.id}</CardTitle>
-                          <p className="text-sm text-muted-foreground">
-                            {job.userLabel && `Customer: ${job.userLabel} • `}
-                            {new Date(job.createdAt).toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xl font-bold text-primary">
-                            {formatPrice(job.totalPriceCents)}
-                          </p>
-                          <Badge variant="secondary" className="bg-status-printed text-white">
-                            {job.paymentStatus}
+                        <CardTitle className="text-lg">Job ID: {group.id.slice(-6).toUpperCase()}</CardTitle>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={group.payment_status === "paid" ? "default" : "secondary"}>
+                            {group.payment_status}
                           </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {new Date(group.created_at).toLocaleString()}
+                          </span>
                         </div>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Total: ₹{(group.total_price_cents / 100).toFixed(2)}
                       </div>
                     </CardHeader>
                     
-                    <CardContent className="space-y-4">
-                      {job.files.map((file) => (
-                        <div key={file.id} className="border rounded-lg p-4 space-y-3">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-medium truncate">{file.fileName}</h4>
-                              <p className="text-sm text-muted-foreground">
-                                {formatFileSize(file.fileSizeBytes)} • 
-                                {file.recipe.colorMode === "bw" ? " B&W" : " Color"} • 
-                                {file.recipe.sides === "single" ? " Single" : " Double"} side • 
-                                {file.recipe.pages} pages • 
-                                {file.recipe.copies} copies
-                              </p>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {group.jobs.map((job) => (
+                          <div key={job.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-medium">{job.file_name}</span>
+                                <Badge 
+                                  variant={
+                                    job.status === "printed" ? "default" :
+                                    job.status === "processing" ? "secondary" : "outline"
+                                  }
+                                >
+                                  {job.status}
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {job.color_mode === "bw" ? "B/W" : "Color"} | 
+                                {job.sides === "single" ? " Single" : " Double"} side | 
+                                {job.pages} pages | 
+                                {job.copies} {job.copies === 1 ? "copy" : "copies"}
+                              </div>
+                              <div className="text-sm font-medium">₹{(job.price_cents / 100).toFixed(2)}</div>
                             </div>
                             
                             <div className="flex items-center gap-2">
-                              <Badge 
-                                variant="secondary" 
-                                className={`text-white ${getStatusColor(file.status)}`}
-                              >
-                                {getStatusIcon(file.status)}
-                                <span className="ml-1">{file.status}</span>
-                              </Badge>
-                              <span className="font-semibold text-sm">
-                                {formatPrice(file.priceCents)}
-                              </span>
+                              <Button size="sm" variant="outline" onClick={() => downloadFile(job)}>
+                                <Download className="w-4 h-4 mr-1" />
+                                Download
+                              </Button>
+                              
+                              {job.status === "queued" && (
+                                <Button 
+                                  size="sm" 
+                                  onClick={() => updateJobStatus(job.id, "processing")}
+                                >
+                                  Start Processing
+                                </Button>
+                              )}
+                              
+                              {job.status === "processing" && (
+                                <Button 
+                                  size="sm" 
+                                  onClick={() => updateJobStatus(job.id, "printed")}
+                                  className="bg-green-600 hover:bg-green-700"
+                                >
+                                  <CheckCircle className="w-4 h-4 mr-1" />
+                                  Mark Printed
+                                </Button>
+                              )}
                             </div>
                           </div>
-                          
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDownloadFile(job.id, file.id, file.fileName)}
-                            >
-                              <Download className="w-4 h-4 mr-1" />
-                              Download
-                            </Button>
-                            
-                            {file.status === "queued" && (
-                              <Button
-                                variant="print"
-                                size="sm"
-                                onClick={() => handleUpdateFileStatus(job.id, file.id, "processing")}
-                              >
-                                Start Processing
-                              </Button>
-                            )}
-                            
-                            {file.status === "processing" && (
-                              <Button
-                                variant="success"
-                                size="sm"
-                                onClick={() => handleUpdateFileStatus(job.id, file.id, "printed")}
-                              >
-                                <CheckCircle className="w-4 h-4 mr-1" />
-                                Mark Printed
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </CardContent>
                   </Card>
-                ))}
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="eod" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Calendar className="w-5 h-5" />
-                  Today's Summary
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-primary">{todayStats.totalJobs}</p>
-                    <p className="text-sm text-muted-foreground">Total Jobs</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-accent">{todayStats.totalFiles}</p>
-                    <p className="text-sm text-muted-foreground">Files Processed</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-status-printed">{formatPrice(todayStats.totalIncome)}</p>
-                    <p className="text-sm text-muted-foreground">Revenue</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-status-processing">{todayStats.totalCustomers}</p>
-                    <p className="text-sm text-muted-foreground">Customers</p>
-                  </div>
-                </div>
-                
-                <p className="text-sm text-muted-foreground text-center">
-                  Use the "EOD Cleanup" button to archive these statistics and clear today's records.
-                </p>
-              </CardContent>
-            </Card>
+                ))
+              )}
+            </div>
           </TabsContent>
         </Tabs>
       </div>

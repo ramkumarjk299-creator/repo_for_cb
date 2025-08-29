@@ -16,8 +16,12 @@ const ACCEPTED_TYPES = {
   'application/pdf': ['.pdf'],
   'application/msword': ['.doc'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'application/vnd.ms-powerpoint': ['.ppt'],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
   'image/jpeg': ['.jpg', '.jpeg'],
-  'image/png': ['.png']
+  'image/png': ['.png'],
+  'image/gif': ['.gif'],
+  'image/bmp': ['.bmp']
 };
 
 export function UploadDropzone({ 
@@ -37,7 +41,7 @@ export function UploadDropzone({
       if (error.code === 'file-too-large') {
         setUploadError(`File too large. Maximum size is ${Math.round(maxSize / 1024 / 1024)}MB`);
       } else if (error.code === 'file-invalid-type') {
-        setUploadError('Invalid file type. Supported: PDF, DOC, DOCX, JPG, PNG');
+        setUploadError('Invalid file type. Supported: PDF, DOC, DOCX, PPT, PPTX, JPG, PNG, GIF, BMP');
       } else {
         setUploadError('Error uploading file. Please try again.');
       }
@@ -108,7 +112,7 @@ export function UploadDropzone({
             
             <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
               <FileText className="w-4 h-4" />
-              <span>PDF, DOC, DOCX, JPG, PNG • Max {Math.round(maxSize / 1024 / 1024)}MB each</span>
+              <span>PDF, DOC, DOCX, PPT, PPTX, JPG, PNG, GIF, BMP • Max {Math.round(maxSize / 1024 / 1024)}MB each</span>
             </div>
           </div>
           

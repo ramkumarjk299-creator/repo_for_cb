@@ -8,6 +8,29 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 
+// File type detection and page counting utility
+const getPageCount = async (file: File): Promise<number> => {
+  const extension = file.name.toLowerCase().split('.').pop();
+  
+  // For PDFs, we'll simulate page detection (in real app, you'd use PDF.js)
+  if (extension === 'pdf') {
+    return Math.floor(Math.random() * 20) + 1; // Simulate 1-20 pages
+  }
+  
+  // For documents, assume 1-5 pages
+  if (['doc', 'docx', 'ppt', 'pptx'].includes(extension || '')) {
+    return Math.floor(Math.random() * 5) + 1;
+  }
+  
+  // For images, always 1 page
+  if (['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(extension || '')) {
+    return 1;
+  }
+  
+  // Default to 1 page
+  return 1;
+};
+
 interface PrintRecipe {
   pages: string;
   colorMode: "bw" | "color";
@@ -43,14 +66,17 @@ export default function CustomerApp() {
       type: "assistant",
       content: (
         <div className="space-y-4">
-          <p>Hi there! 👋 Welcome to QuickPrint Web!</p>
+          <p className="text-lg font-semibold">Hi there! 👋 Welcome to QuickPrint Web!</p>
           <p>I'm here to help you print your documents quickly and easily.</p>
+          <p className="text-sm text-muted-foreground">
+            📄 Supported: PDF, DOC, DOCX, PPT, PPTX, JPG, PNG, GIF, BMP
+          </p>
           <div className="flex gap-2 pt-2">
             <Button onClick={() => handleUserChoice("upload")} variant="default">
-              Upload Document
+              📎 Upload Document
             </Button>
             <Button onClick={() => handleUserChoice("exit")} variant="outline">
-              Exit
+              👋 Exit
             </Button>
           </div>
         </div>
@@ -64,9 +90,10 @@ export default function CustomerApp() {
   const { toast } = useToast();
 
   const calculatePrice = useCallback((recipe: PrintRecipe, totalPages: number = 5): number => {
-    const basePricePerPage = 10; // ₹0.10 per page
-    const colorMultiplier = recipe.colorMode === "color" ? 2 : 1;
-    const sidesMultiplier = recipe.sides === "double" ? 0.9 : 1;
+    // Indian pricing: B/W ₹1-2 per page, Color ₹8-15 per page
+    const basePricePerPage = recipe.colorMode === "color" ? 1000 : 150; // ₹10 color, ₹1.50 B/W in paise
+    const sidesMultiplier = recipe.sides === "double" ? 1.5 : 1; // Double side is 1.5x price
+    const platformFee = 100; // ₹1 platform fee in paise
     
     let pageCount = totalPages;
     if (recipe.pages !== "all") {
@@ -83,7 +110,8 @@ export default function CustomerApp() {
       }
     }
     
-    return Math.round(basePricePerPage * pageCount * recipe.copies * colorMultiplier * sidesMultiplier);
+    const printingCost = Math.round(basePricePerPage * pageCount * recipe.copies * sidesMultiplier);
+    return printingCost + platformFee;
   }, []);
 
   const handleUserChoice = useCallback((choice: "upload" | "exit") => {
@@ -95,9 +123,9 @@ export default function CustomerApp() {
     setShowUpload(true);
     addChatMessage("assistant", (
       <div className="space-y-2">
-        <p>Great! Please upload your document(s) below.</p>
+        <p>Perfect! Please upload your document(s) below.</p>
         <p className="text-xs text-muted-foreground">
-          Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 100MB each)
+          📄 Supported: PDF, DOC, DOCX, PPT, PPTX, JPG, PNG, GIF, BMP (Max 100MB each)
         </p>
       </div>
     ));
@@ -116,6 +144,7 @@ export default function CustomerApp() {
   const handleFileUpload = useCallback(async (files: File[]) => {
     for (const file of files) {
       const fileId = crypto.randomUUID();
+      const detectedPages = await getPageCount(file);
       
       const newFile: UploadedFile = {
         id: fileId,
@@ -124,11 +153,11 @@ export default function CustomerApp() {
         priceCents: 0,
         status: "uploading",
         uploadProgress: 0,
-        totalPages: Math.floor(Math.random() * 20) + 1 // Simulate page detection
+        totalPages: detectedPages
       };
 
       setUploadedFiles(prev => [...prev, newFile]);
-      addChatMessage("assistant", `📎 Uploading: ${file.name}...`);
+      addChatMessage("assistant", `📎 Uploading "${file.name}"... Please wait.`);
 
       try {
         // Create job group if not exists
@@ -170,15 +199,15 @@ export default function CustomerApp() {
             : f
         ));
 
-        addChatMessage("assistant", `✅ Uploaded: ${file.name}`);
+        addChatMessage("assistant", `✅ Upload successful! "${file.name}" (${detectedPages} pages detected)`);
         
         setTimeout(() => {
-          addChatMessage("assistant", `Great! I received "${file.name}". Now let's set up the print settings for this document.`);
+          addChatMessage("assistant", `Perfect! Now let's configure the print settings for "${file.name}".`);
           setConfiguringFileId(fileId);
           setUploadedFiles(prev => prev.map(f => 
             f.id === fileId ? { ...f, status: "configuring" } : f
           ));
-        }, 500);
+        }, 800);
 
       } catch (error) {
         console.error('Upload error:', error);
@@ -321,8 +350,9 @@ export default function CustomerApp() {
         <div className="space-y-3">
           <p className="font-semibold text-green-600">✅ Payment received! Your order is in the queue!</p>
           
-          <div className="bg-muted p-3 rounded-lg">
-            <p className="font-medium">🆔 JOB ID: {currentJobGroupId.slice(-6).toUpperCase()}</p>
+          <div className="bg-primary/10 border border-primary/20 p-4 rounded-lg">
+            <p className="font-bold text-lg text-primary">🆔 JOB ID: {currentJobGroupId.slice(-6).toUpperCase()}</p>
+            <p className="text-sm text-muted-foreground mt-1">Show this ID at the print shop</p>
             
             <div className="mt-2 space-y-1">
               {readyFiles.map((file, index) => (

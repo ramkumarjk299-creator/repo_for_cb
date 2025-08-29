@@ -84,11 +84,22 @@ export function OrderSummary({
         <Separator />
         
         {/* Total */}
-        <div className="flex items-center justify-between pt-2">
-          <span className="font-semibold">Total Cost:</span>
-          <span className="text-xl font-bold text-primary">
-            {formatPrice(totalCents)}
-          </span>
+        <div className="space-y-2 pt-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Printing Cost:</span>
+            <span className="font-medium">{formatPrice(totalCents - 100)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Platform Fee:</span>
+            <span className="font-medium">₹1.00</span>
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-lg">Total Cost:</span>
+            <span className="text-xl font-bold text-primary">
+              {formatPrice(totalCents)}
+            </span>
+          </div>
         </div>
         
         {/* Payment Button */}
@@ -113,10 +124,10 @@ export function OrderSummary({
             )}
           </Button>
           
-          <p className="text-xs text-muted-foreground text-center mt-2">
-            <Clock className="w-3 h-3 inline mr-1" />
-            This is a demo payment - no actual charges will be made
-          </p>
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              <Clock className="w-3 h-3 inline mr-1" />
+              Click to simulate payment (Demo mode)
+            </p>
         </div>
       </CardContent>
     </Card>

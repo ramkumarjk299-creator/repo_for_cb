@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      system_status: {
+        Row: {
+          id: string;
+          on_off: number;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          on_off: number;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          on_off?: number;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
       daily_summary: {
         Row: {
           created_at: string | null

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { ChatLayout } from "@/components/layout/ChatLayout";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { UploadDropzone } from "@/components/upload/UploadDropzone";
@@ -59,35 +59,67 @@ interface ChatEntry {
 
 export default function CustomerApp() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [currentJobGroupId, setCurrentJobGroupId] = useState<string | null>(null);
-  const [chatHistory, setChatHistory] = useState<ChatEntry[]>([
-    {
-      id: "welcome",
-      type: "assistant",
-      content: (
-        <div className="space-y-4">
-          <p className="text-lg font-semibold">Hi there! 👋 Welcome to QuickPrint Web!</p>
-          <p>I'm here to help you print your documents quickly and easily.</p>
-          <p className="text-sm text-muted-foreground">
-            📄 Supported: PDF, DOC, DOCX, PPT, PPTX, JPG, PNG, GIF, BMP
-          </p>
-          <div className="flex gap-2 pt-2">
-            <Button onClick={() => handleUserChoice("upload")} variant="default">
-              📎 Upload Document
-            </Button>
-            <Button onClick={() => handleUserChoice("exit")} variant="outline">
-              👋 Exit
-            </Button>
-          </div>
-        </div>
-      ),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ]);
+  const jobGroupIdRef = useRef<string | null>(null);
+  const [shopOnline, setShopOnline] = useState(true);
+  const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [configuringFileId, setConfiguringFileId] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Responsive: always show a welcome/placeholder if chat is empty
+  useEffect(() => {
+    const fetchStatus = async () => {
+      const { data, error } = await supabase
+        .from('system_status')
+        .select('on_off')
+        .limit(1)
+        .single();
+      if (!error && data && data.on_off === 1) {
+        setShopOnline(true);
+        setChatHistory([
+          {
+            id: "welcome",
+            type: "assistant",
+            content: (
+              <div className="space-y-4">
+                <p className="text-lg font-semibold">Hi there! 👋 Welcome to QuickPrint Web!</p>
+                <p>I'm here to help you print your documents quickly and easily.</p>
+                <p className="text-sm text-muted-foreground">
+                  📄 Supported: PDF, DOC, DOCX, PPT, PPTX, JPG, PNG, GIF, BMP
+                </p>
+                <div className="flex gap-2 pt-2">
+                  <Button onClick={() => handleUserChoice("upload")} variant="default">
+                    📎 Upload Document
+                  </Button>
+                  <Button onClick={() => handleUserChoice("exit")} variant="outline">
+                    👋 Exit
+                  </Button>
+                </div>
+              </div>
+            ),
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+      } else {
+        setChatHistory([
+          {
+            id: "offline",
+            type: "assistant",
+            content: (
+              <div className="space-y-4">
+                <p className="text-lg font-semibold text-red-600">Shop is currently offline.</p>
+                <p>Please come back later. Uploads and chat are disabled while the shop is offline.</p>
+              </div>
+            ),
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+      }
+    };
+    fetchStatus();
+  }, []);
+
 
   const calculatePrice = useCallback((recipe: PrintRecipe, totalPages: number = 5): number => {
     // Indian pricing: B/W ₹1-2 per page, Color ₹8-15 per page
@@ -142,10 +174,27 @@ export default function CustomerApp() {
   }, []);
 
   const handleFileUpload = useCallback(async (files: File[]) => {
+    // Prevent upload if shop is offline
+    if (!shopOnline) {
+      addChatMessage("assistant", "Shop is offline. Please come back later. Uploads are disabled.");
+      return;
+    }
+
+    // Only create a new job group if not already set for this session
+    if (!jobGroupIdRef.current) {
+      const { data: jobGroup, error: jobGroupError } = await supabase
+        .from('job_groups')
+        .insert({})
+        .select()
+        .single();
+      if (jobGroupError) throw jobGroupError;
+      jobGroupIdRef.current = jobGroup.id;
+    }
+
     for (const file of files) {
       const fileId = crypto.randomUUID();
       const detectedPages = await getPageCount(file);
-      
+
       const newFile: UploadedFile = {
         id: fileId,
         fileName: file.name,
@@ -157,23 +206,11 @@ export default function CustomerApp() {
       };
 
       setUploadedFiles(prev => [...prev, newFile]);
-      addChatMessage("assistant", `📎 Uploading "${file.name}"... Please wait.`);
+  addChatMessage("assistant", `📎 Uploading "${file.name}"... Please wait.`);
 
       try {
-        // Create job group if not exists
-        if (!currentJobGroupId) {
-          const { data: jobGroup, error: jobGroupError } = await supabase
-            .from('job_groups')
-            .insert({})
-            .select()
-            .single();
-          
-          if (jobGroupError) throw jobGroupError;
-          setCurrentJobGroupId(jobGroup.id);
-        }
-
         // Upload file to storage
-        const storagePath = `jobs/${currentJobGroupId}/${fileId}-${file.name}`;
+        const storagePath = `jobs/${jobGroupIdRef.current}/${fileId}-${file.name}`;
         const { error: uploadError } = await supabase.storage
           .from('documents')
           .upload(storagePath, file);
@@ -185,7 +222,7 @@ export default function CustomerApp() {
           .from('jobs')
           .insert({
             id: fileId,
-            job_group_id: currentJobGroupId,
+            job_group_id: jobGroupIdRef.current,
             file_name: file.name,
             file_size_bytes: file.size,
             storage_path: storagePath
@@ -193,8 +230,8 @@ export default function CustomerApp() {
 
         if (jobError) throw jobError;
 
-        setUploadedFiles(prev => prev.map(f => 
-          f.id === fileId 
+        setUploadedFiles(prev => prev.map(f =>
+          f.id === fileId
             ? { ...f, status: "uploaded", uploadProgress: 100, storagePath }
             : f
         ));
@@ -219,7 +256,7 @@ export default function CustomerApp() {
         });
       }
     }
-  }, [currentJobGroupId, addChatMessage, toast]);
+  }, [addChatMessage, toast]);
 
   const handleRecipeSubmit = useCallback(async (recipe: PrintRecipe) => {
     if (!configuringFileId) return;
@@ -294,7 +331,7 @@ export default function CustomerApp() {
     
     addChatMessage("assistant", (
       <div className="space-y-3">
-        <p>🆔 JOB ID: {currentJobGroupId?.slice(-6).toUpperCase()}</p>
+        <p className="font-mono text-lg">🆔 JOB ID: {jobGroupIdRef.current?.slice(-6).toUpperCase()}</p>
         <div className="bg-muted p-3 rounded-lg">
           {readyFiles.map((file, index) => (
             <div key={file.id} className="text-sm">
@@ -306,7 +343,7 @@ export default function CustomerApp() {
         <p>Please review your order summary below and proceed to payment.</p>
       </div>
     ));
-  }, [uploadedFiles, currentJobGroupId, addChatMessage]);
+  }, [uploadedFiles, addChatMessage]);
 
   const handleRemoveFile = useCallback(async (fileId: string) => {
     try {
@@ -324,7 +361,7 @@ export default function CustomerApp() {
   }, [uploadedFiles]);
 
   const handleConfirmPayment = useCallback(async () => {
-    if (!currentJobGroupId) return;
+  if (!jobGroupIdRef.current) return;
     
     setIsProcessingPayment(true);
     
@@ -339,19 +376,19 @@ export default function CustomerApp() {
           payment_status: 'paid',
           total_price_cents: totalPrice
         })
-        .eq('id', currentJobGroupId);
+  .eq('id', jobGroupIdRef.current);
 
       await supabase
         .from('jobs')
         .update({ payment_status: 'paid' })
-        .eq('job_group_id', currentJobGroupId);
+  .eq('job_group_id', jobGroupIdRef.current);
 
       addChatMessage("assistant", (
         <div className="space-y-3">
           <p className="font-semibold text-green-600">✅ Payment received! Your order is in the queue!</p>
           
           <div className="bg-primary/10 border border-primary/20 p-4 rounded-lg">
-            <p className="font-bold text-lg text-primary">🆔 JOB ID: {currentJobGroupId.slice(-6).toUpperCase()}</p>
+            <p className="font-bold text-lg text-primary">🆔 JOB ID: {jobGroupIdRef.current?.slice(-6).toUpperCase()}</p>
             <p className="text-sm text-muted-foreground mt-1">Show this ID at the print shop</p>
             
             <div className="mt-2 space-y-1">
@@ -380,13 +417,13 @@ export default function CustomerApp() {
       setTimeout(() => {
         addChatMessage("assistant", "Ready for your next print job! Feel free to upload more documents.");
         setUploadedFiles([]);
-        setCurrentJobGroupId(null);
+  jobGroupIdRef.current = null;
         setShowUpload(false);
       }, 3000);
 
       toast({
         title: "Payment Successful!",
-        description: `Job ID: ${currentJobGroupId.slice(-6).toUpperCase()} - Your documents are being processed.`,
+  description: `Job ID: ${jobGroupIdRef.current?.slice(-6).toUpperCase()} - Your documents are being processed.`,
       });
     } catch (error) {
       console.error('Payment error:', error);
@@ -398,62 +435,73 @@ export default function CustomerApp() {
     } finally {
       setIsProcessingPayment(false);
     }
-  }, [currentJobGroupId, uploadedFiles, addChatMessage, toast]);
+  }, [uploadedFiles, addChatMessage, toast]);
 
   const readyFiles = uploadedFiles.filter(f => f.status === "ready");
   const totalCents = readyFiles.reduce((sum, file) => sum + file.priceCents, 0);
   const canProceedToPayment = readyFiles.length > 0 && !isProcessingPayment && !configuringFileId;
 
+  // --- MOBILE-FIRST FLEX LAYOUT ---
   return (
-    <ChatLayout>
-      <div className="space-y-6">
-        {/* Chat History */}
-        <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-          {chatHistory.map((entry) => (
-            <ChatMessage
-              key={entry.id}
-              type={entry.type}
-              timestamp={entry.timestamp}
-            >
-              {entry.content}
-            </ChatMessage>
-          ))}
+    <ChatLayout className="!p-0">
+      <div className="flex flex-col min-h-[80vh] sm:min-h-[600px] max-h-[90vh]">
+        {/* Chat History (flex-1, scrollable) */}
+        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-3" style={{ WebkitOverflowScrolling: 'touch' }}>
+          {chatHistory.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground animate-fade-in">
+              <p className="text-lg font-semibold">Welcome to QuickPrint Web!</p>
+              <p>Start a chat or upload a document to begin.</p>
+            </div>
+          ) : (
+            chatHistory.map((entry) => (
+              <ChatMessage
+                key={entry.id}
+                type={entry.type}
+                timestamp={entry.timestamp}
+              >
+                {entry.content}
+              </ChatMessage>
+            ))
+          )}
         </div>
 
-        {/* File Upload */}
-        {showUpload && !configuringFileId && (
-          <UploadDropzone 
-            onFileUpload={handleFileUpload}
-            disabled={isProcessingPayment}
-          />
-        )}
-
-        {/* Recipe Configuration */}
-        {configuringFileId && (
-          <div className="flex justify-center">
-            <PrintRecipeForm
-              fileName={uploadedFiles.find(f => f.id === configuringFileId)?.fileName || ""}
-              totalPages={uploadedFiles.find(f => f.id === configuringFileId)?.totalPages}
-              onSubmit={handleRecipeSubmit}
-              onCancel={handleRecipeCancel}
+        {/* Sticky bottom area: Upload, Recipe, Payment */}
+        <div className="sticky bottom-0 left-0 w-full bg-card/95 backdrop-blur border-t border-border z-10 px-2 pt-2 pb-3 flex flex-col gap-2">
+          {/* File Upload */}
+          {showUpload && !configuringFileId && (
+            <UploadDropzone 
+              onFileUpload={handleFileUpload}
+              disabled={isProcessingPayment}
             />
-          </div>
-        )}
+          )}
 
-        {/* Order Summary */}
-        {canProceedToPayment && (
-          <OrderSummary
-            items={readyFiles.map(file => ({
-              id: file.id,
-              fileName: file.fileName,
-              recipe: file.recipe!,
-              priceCents: file.priceCents
-            }))}
-            totalCents={totalCents}
-            onConfirmPayment={handleConfirmPayment}
-            isProcessing={isProcessingPayment}
-          />
-        )}
+          {/* Recipe Configuration */}
+          {configuringFileId && (
+            <div className="flex justify-center">
+              <PrintRecipeForm
+                fileName={uploadedFiles.find(f => f.id === configuringFileId)?.fileName || ""}
+                totalPages={uploadedFiles.find(f => f.id === configuringFileId)?.totalPages}
+                onSubmit={handleRecipeSubmit}
+                onCancel={handleRecipeCancel}
+              />
+            </div>
+          )}
+
+          {/* Order Summary */}
+          {canProceedToPayment && (
+            <OrderSummary
+              items={readyFiles.map(file => ({
+                id: file.id,
+                fileName: file.fileName,
+                recipe: file.recipe!,
+                priceCents: file.priceCents
+              }))}
+              totalCents={totalCents}
+              onConfirmPayment={handleConfirmPayment}
+              isProcessing={isProcessingPayment}
+            />
+          )}
+        </div>
       </div>
     </ChatLayout>
   );

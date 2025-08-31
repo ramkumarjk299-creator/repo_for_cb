@@ -33,11 +33,11 @@ export function UploadDropzone({
 }: UploadDropzoneProps) {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
+  const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: unknown[]) => {
     setUploadError(null);
     
     if (rejectedFiles.length > 0) {
-      const error = rejectedFiles[0].errors[0];
+      const error = (rejectedFiles[0] as { errors: { code: string }[] }).errors[0];
       if (error.code === 'file-too-large') {
         setUploadError(`File too large. Maximum size is ${Math.round(maxSize / 1024 / 1024)}MB`);
       } else if (error.code === 'file-invalid-type') {
@@ -55,11 +55,18 @@ export function UploadDropzone({
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     onDrop,
-    accept: ACCEPTED_TYPES,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'application/msword': ['.doc'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/vnd.ms-powerpoint': ['.ppt'],
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+      'image/*': ['.jpg', '.jpeg', '.png', '.gif', '.bmp']
+    },
     maxSize,
     maxFiles,
     disabled,
-    multiple: true
+    multiple: false
   });
 
   return (
